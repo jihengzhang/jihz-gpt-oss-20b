@@ -78,16 +78,21 @@ print(outputs[0]["generated_text"][-1])
 
 #### vLLM
 
-vLLM recommends using [`uv`](https://docs.astral.sh/uv/) for Python dependency management. You can use vLLM to spin up an OpenAI-compatible web server. The following command will automatically download the model and start the server.
+You can use vLLM to spin up an OpenAI-compatible web server. **Recommended: Install the stable release from PyPI:**
 
 ```bash
-uv pip install --pre vllm==0.10.1+gptoss \
-    --extra-index-url https://wheels.vllm.ai/gpt-oss/ \
-    --extra-index-url https://download.pytorch.org/whl/nightly/cu128 \
-    --index-strategy unsafe-best-match
+pip install vllm
 
 vllm serve openai/gpt-oss-20b
 ```
+
+If you need GPU acceleration with CUDA 12.8, try:
+
+```bash
+pip install vllm --extra-index-url https://download.pytorch.org/whl/cu128
+```
+
+**Note:** The nightly vLLM builds may have dependency resolution issues. If installation fails due to missing dependencies (`flashinfer-python`, `xgrammar`) or platform compatibility issues, use the stable PyPI release above or consider using [Ollama](#ollama) for easier local deployment.
 
 [Learn more about how to use gpt-oss with vLLM.](https://cookbook.openai.com/articles/gpt-oss/run-vllm)
 
@@ -202,6 +207,23 @@ lms get openai/gpt-oss-120b
 
 Check out our [awesome list](./awesome-gpt-oss.md) for a broader collection of gpt-oss resources and inference partners.
 
+### Troubleshooting
+
+**vLLM installation issues:**
+
+If you encounter dependency resolution errors with vLLM (e.g., `flashinfer-python`, `xgrammar` not found), this is typically due to:
+- Platform compatibility issues (missing wheels for your architecture)
+- Dependency conflicts in nightly builds
+
+**Solutions:**
+1. Use the stable vLLM release: `pip install vllm`
+2. Use Ollama instead for simpler local deployment
+3. Try PyTorch/Triton implementations included in this repo
+
+**Python version requirements:**
+- vLLM requires Python 3.9-3.12 (not 3.13+)
+- Create a compatible environment: `conda create -n gpt-oss python=3.10`
+
 ## About this repository
 
 This repository provides a collection of reference implementations:
@@ -221,7 +243,7 @@ This repository provides a collection of reference implementations:
 
 ### Requirements
 
-- Python 3.12
+- Python 3.10
 - On macOS: Install the Xcode CLI tools --> `xcode-select --install`
 - On Linux: These reference implementations require CUDA
 - On Windows: These reference implementations have not been tested on Windows. Try using solutions like Ollama if you are trying to run the model locally.
