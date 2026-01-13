@@ -56,14 +56,15 @@ triton = [
 
 # vLLM inference backend (high-performance serving)
 # Note: vLLM has strict version requirements, use exact versions to avoid conflicts
+# Updated: 2026-01-13 based on successful installation
 vllm = [
   "vllm==0.13.0",
   "torch==2.9.0",
   "torchaudio==2.9.0",
   "torchvision==0.24.0",
-  "transformers>=4.57.0,<5.0.0",
-  "tokenizers>=0.22.0",
-  "numpy>=1.24.0,<2.3",
+  "transformers==4.57.3",  # Exact version from installation
+  "tokenizers==0.22.2",    # Exact version from installation
+  "numpy>=2.2.0,<2.3",     # Updated to match installed 2.2.6
   "outlines_core==0.2.11",
 ]
 
