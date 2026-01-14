@@ -870,3 +870,72 @@ A: `VLLM_LOG_LEVEL=DEBUG vllm serve openai/gpt-oss-20b --port 8010`
 
 **最后更新**: 2026年1月13日  
 **维护者**: gpt-oss 项目团队
+
+### Get PCI_BUS_ID
+```
+nvidia-smi --query-gpu=index,name,pci.bus_id --format=csv
+index, name, pci.bus_id
+0, NVIDIA T1000 8GB, 00000000:47:00.0
+1, NVIDIA RTX PRO 6000 Blackwell Workstation Edition, 00000000:5E:00.0
+2, NVIDIA RTX PRO 6000 Blackwell Workstation Edition, 00000000:75:00.0
+
+$ lspci | grep -i nvidia
+47:00.0 VGA compatible controller: NVIDIA Corporation TU117GL [T1000 8GB] (rev a1)
+47:00.1 Audio device: NVIDIA Corporation Device 10fa (rev a1)
+5e:00.0 VGA compatible controller: NVIDIA Corporation Device 2bb1 (rev a1)
+5e:00.1 Audio device: NVIDIA Corporation Device 22e8 (rev a1)
+75:00.0 VGA compatible controller: NVIDIA Corporation Device 2bb1 (rev a1)
+75:00.1 Audio device: NVIDIA Corporation Device 22e8 (rev a1)
+
+```
+### vllm with PCI_BUS_ID
+```
+CUDA_DEVICE_ORDER=00000000:5E:00.0 CUDA_VISIBLE_DEVICES=1 vllm --version
+```
+### 获取GPU的算力
+```
+nvidia-smi --query-gpu=name,compute_cap --format=csv
+NVIDIA T1000 8GB, 7.5
+NVIDIA RTX PRO 6000 Blackwell Workstation Edition, 12.0
+NVIDIA RTX PRO 6000 Blackwell Workstation Edition, 12.0
+
+```
+
+### hf model download
+```
+  581  hf download openai/gpt-oss-20b --local-dir ./gpt-oss-20b
+  582  HF_ENDPOINT=https://hf-mirror.com hf download openai/gpt-oss-20b --local-dir ./gpt-oss-20b
+```
+## vLLM Serve (local model)
+
+**启动脚本**: [start_vllm.sh](start_vllm.sh)
+
+完整命令示例：
+
+在.bashrc 中 添加如下环境变量
+```bash
+
+export HF_ENDPOINT=https://hf-mirror.com
+export PYTORCH_ALLOC_CONF="expandable_segments:True"
+export CUDA_VISIBLE_DEVICES=1
+
+nohup conda run -p /home/tester/miniconda3/envs/gpt-oss-env \
+  vllm serve "./gpt-oss-20b" --port 8010 \
+    --dtype bfloat16 --max-model-len 2048 \
+    --tensor-parallel-size 1 --gpu-memory-utilization 0.5 \
+    > ./log.txt 2>&1 &
+
+echo $! > vllm.pid
+```
+
+**常用操作**:
+- 查看日志: `tail -f ./log.txt`
+- 停止服务: `kill $(cat vllm.pid)` 或 `pkill -f "vllm serve"`
+
+**关键参数调优**:
+- `--dtype bfloat16`: 匹配模型的 mxfp4 量化格式
+- `--gpu-memory-utilization 0.5`: 显存不足时降低此值避免 OOM
+- `--tensor-parallel-size 1`: 单 GPU 推理
+- `HF_ENDPOINT`: 国内镜像加速 HuggingFace 下载
+
+**离线方案**: 若需 Harmony 编码，在有网络的机器执行 `python -c 'from openai_harmony import load_harmony_encoding, HarmonyEncodingName; load_harmony_encoding(HarmonyEncodingName.HARMONY_GPT_OSS)'` 下载缓存，再复制 `~/.cache/huggingface/hub` 到目标机器。
