@@ -164,7 +164,16 @@ stop_vllm() {
 restart_vllm() {
   echo "重启 GPT-OSS-20B vLLM 服务器..."
   stop_vllm
-  sleep 2
+  
+  # 显示等待进度（倒计时）
+  echo "等待服务完全停止..."
+  for i in {5..1}; do
+    echo -ne "\r⏳ 等待中... ${i}秒"
+    sleep 1
+  done
+  echo -e "\r✓ 服务已停止          "
+  echo ""
+  
   start_vllm
 }
 
