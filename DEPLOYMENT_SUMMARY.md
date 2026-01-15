@@ -687,6 +687,8 @@ curl http://localhost:8010/v1/chat/completions \
     "max_tokens": 100,
     "temperature": 0.7
   }'
+
+  curl -s http://localhost:8010/v1/models | python3 -m json.tool | head -30
 ```
 
 ---

@@ -17,6 +17,8 @@ export CUDA_VISIBLE_DEVICES=1,2
 export CUDA_DEVICE_ORDER=PCI_BUS_ID
 # 启用 PyTorch 内存分配器的可扩展段，避免内存碎片化
 export PYTORCH_ALLOC_CONF=expandable_segments:True
+# 设置 tiktoken 缓存目录，使用本地 tokenizer 文件
+export TIKTOKEN_CACHE_DIR="/home/tester/jihz-gpt-oss-20b"
 # HuggingFace 中国镜像配置（用于下载vocab文件）
 export HF_ENDPOINT=https://hf-mirror.com
 
@@ -61,7 +63,7 @@ start_vllm() {
     --dtype bfloat16 \
     --max-model-len 2048 \
     --tensor-parallel-size 1 \
-    --gpu-memory-utilization 0.5 > log.txt 2>&1 &
+    --gpu-memory-utilization 0.4 > log.txt 2>&1 &
 
   # 打印进程 ID
   echo "vLLM 服务器启动中（后台进程）..."
