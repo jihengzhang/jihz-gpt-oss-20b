@@ -7,3 +7,5 @@ node_modules/
 *.log
 *.safetensors
 gpt-oss-20b/metal/model.bin
+log.txt
+vllm.pid

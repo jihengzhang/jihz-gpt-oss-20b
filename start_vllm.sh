@@ -29,7 +29,7 @@ export HF_ENDPOINT=https://hf-mirror.com
 MODEL_PATH="/home/tester/jihz-gpt-oss-20b/gpt-oss-20b"
 PORT=8010
 PID_FILE="vllm.pid"
-
+CONDA_ENV="gpt-oss-env"
 # ==================== 函数定义 ====================
 
 # 启动 vLLM 服务
@@ -46,37 +46,89 @@ start_vllm() {
   echo "API 端口: $PORT"
   echo "=========================================="
 
-  # 检查是否已经运行
-  if [ -f "$PID_FILE" ]; then
-    EXISTING_PID=$(cat "$PID_FILE")
-    if ps -p "$EXISTING_PID" > /dev/null 2>&1; then
-      echo "✗ vLLM 已在运行 (PID: $EXISTING_PID)"
-      return 1
-    fi
+  # 检查是否已经运行（通过ps aux检查）
+  EXISTING_PID=$(ps aux | grep -E "vllm serve.*$MODEL_PATH" | grep -v grep | awk '{print $2}' | head -1)
+  if [ -n "$EXISTING_PID" ]; then
+    echo "✗ vLLM 已在运行 (PID: $EXISTING_PID)"
+    return 1
   fi
 
-  # 以后台进程方式启动（daemon），所有输出重定向到 log.txt
-  nohup conda run -p /home/tester/miniconda3/envs/gpt-oss-env \
-    vllm serve "$MODEL_PATH" \
-    --port "$PORT" \
-    --served-model-name gpt-oss-20b \
-    --dtype bfloat16 \
-    --max-model-len 2048 \
-    --tensor-parallel-size 1 \
-    --gpu-memory-utilization 0.4 > log.txt 2>&1 &
+  # 清空旧的日志文件
+  > log.txt
 
-  # 打印进程 ID
+  # 激活conda环境后，直接调用vllm serve命令
+  # 所有输出重定向到log.txt
+  {
+    source /home/tester/miniconda3/bin/activate "$CONDA_ENV"
+    nohup vllm serve "$MODEL_PATH" \
+      --port "$PORT" \
+      --served-model-name gpt-oss-20b \
+      --dtype bfloat16 \
+      --max-model-len 2048 \
+      --tensor-parallel-size 1 \
+      --gpu-memory-utilization 0.4 < /dev/null > log.txt 2>&1 &
+  }
+
+  # 显示启动过程
   echo "vLLM 服务器启动中（后台进程）..."
-  sleep 2
-  VLLM_PID=$(pgrep -f "vllm serve.*$MODEL_PATH" | head -1)
+  echo "=========================================="
+  echo "实时日志输出（Ctrl+C 继续）："
+  echo "=========================================="
+  
+  # 实时显示日志，等待服务启动或失败
+  tail -f log.txt &
+  TAIL_PID=$!
+  
+  # 等待服务启动（检查API是否响应或最多等待30秒）
+  TIMEOUT=60
+  ELAPSED=0
+  while [ $ELAPSED -lt $TIMEOUT ]; do
+    sleep 1
+    ELAPSED=$((ELAPSED + 1))
+    
+    # 检查vLLM进程是否存在
+    VLLM_PID=$(ps aux | grep -E "vllm serve.*$MODEL_PATH" | grep -v grep | awk '{print $2}' | head -1)
+    if [ -z "$VLLM_PID" ]; then
+      # 进程已死亡，检查日志中是否有错误
+      echo ""
+      echo "✗ vLLM 进程启动失败"
+      kill $TAIL_PID 2>/dev/null
+      wait $TAIL_PID 2>/dev/null
+      return 1
+    fi
+    
+    # 检查API是否开始响应
+    if curl -s "http://localhost:$PORT/v1/models" > /dev/null 2>&1; then
+      # 服务已启动
+      echo ""
+      echo "=========================================="
+      kill $TAIL_PID 2>/dev/null
+      wait $TAIL_PID 2>/dev/null
+      echo "=========================================="
+      echo "$VLLM_PID" > "$PID_FILE"
+      echo "✓ vLLM 进程已启动，PID: $VLLM_PID"
+      echo "✓ 日志文件: ./log.txt"
+      echo "✓ API 地址: http://localhost:$PORT/v1/models"
+      return 0
+    fi
+  done
+  
+  # 超时
+  echo ""
+  echo "=========================================="
+  kill $TAIL_PID 2>/dev/null
+  wait $TAIL_PID 2>/dev/null
+  echo "✗ vLLM 启动超时（$TIMEOUT秒内未响应）"
+  echo "✓ 进程仍在后台运行，请继续等待并查看日志：tail -f log.txt"
+  
+  # 再等待一次，确认进程还在
+  VLLM_PID=$(ps aux | grep -E "vllm serve.*$MODEL_PATH" | grep -v grep | awk '{print $2}' | head -1)
   if [ -n "$VLLM_PID" ]; then
     echo "$VLLM_PID" > "$PID_FILE"
-    echo "✓ vLLM 进程已启动，PID: $VLLM_PID"
-    echo "✓ 日志文件: ./log.txt"
-    echo "✓ API 地址: http://localhost:$PORT/v1/models"
+    echo "✓ vLLM 进程 PID: $VLLM_PID"
     return 0
   else
-    echo "✗ vLLM 启动失败，请查看日志：tail -f log.txt"
+    echo "✗ vLLM 进程已退出"
     return 1
   fi
 }
@@ -85,40 +137,27 @@ start_vllm() {
 stop_vllm() {
   echo "停止 GPT-OSS-20B vLLM 服务器..."
   
-  if [ -f "$PID_FILE" ]; then
-    VLLM_PID=$(cat "$PID_FILE")
+  # 通过ps aux查找进程
+  VLLM_PID=$(ps aux | grep -E "vllm serve.*$MODEL_PATH" | grep -v grep | awk '{print $2}' | head -1)
+  
+  if [ -n "$VLLM_PID" ]; then
+    kill "$VLLM_PID"
+    sleep 1
+    
+    # 检查进程是否还在运行
     if ps -p "$VLLM_PID" > /dev/null 2>&1; then
-      kill "$VLLM_PID"
-      sleep 1
-      if ps -p "$VLLM_PID" > /dev/null 2>&1; then
-        kill -9 "$VLLM_PID"
-        echo "✓ vLLM 进程已强制终止 (PID: $VLLM_PID)"
-      else
-        echo "✓ vLLM 进程已停止 (PID: $VLLM_PID)"
-      fi
-      rm -f "$PID_FILE"
+      kill -9 "$VLLM_PID"
+      echo "✓ vLLM 进程已强制终止 (PID: $VLLM_PID)"
     else
-      echo "✗ PID 文件存在但进程不运行，清理 PID 文件"
-      rm -f "$PID_FILE"
+      echo "✓ vLLM 进程已停止 (PID: $VLLM_PID)"
     fi
+    rm -f "$PID_FILE"
+    return 0
   else
-    # 直接查找进程
-    VLLM_PID=$(pgrep -f "vllm serve.*$MODEL_PATH" | head -1)
-    if [ -n "$VLLM_PID" ]; then
-      kill "$VLLM_PID"
-      sleep 1
-      if ps -p "$VLLM_PID" > /dev/null 2>&1; then
-        kill -9 "$VLLM_PID"
-        echo "✓ vLLM 进程已强制终止 (PID: $VLLM_PID)"
-      else
-        echo "✓ vLLM 进程已停止 (PID: $VLLM_PID)"
-      fi
-    else
-      echo "✗ vLLM 服务未运行"
-      return 1
-    fi
+    echo "✗ vLLM 服务未运行"
+    rm -f "$PID_FILE"
+    return 1
   fi
-  return 0
 }
 
 # 重启 vLLM 服务
@@ -153,28 +192,17 @@ EOF
 
 # 查看服务状态
 status_vllm() {
-  if [ -f "$PID_FILE" ]; then
-    VLLM_PID=$(cat "$PID_FILE")
-    if ps -p "$VLLM_PID" > /dev/null 2>&1; then
-      echo "✓ vLLM 服务运行中 (PID: $VLLM_PID)"
-      echo "  API 地址: http://localhost:$PORT/v1/models"
-      echo "  日志文件: ./log.txt"
-      return 0
-    else
-      echo "✗ PID 文件存在但进程未运行，请执行: $0 --start"
-      return 1
-    fi
+  # 通过ps aux查找进程
+  VLLM_PID=$(ps aux | grep -E "vllm serve.*$MODEL_PATH" | grep -v grep | awk '{print $2}' | head -1)
+  
+  if [ -n "$VLLM_PID" ]; then
+    echo "✓ vLLM 服务运行中 (PID: $VLLM_PID)"
+    echo "  API 地址: http://localhost:$PORT/v1/models"
+    echo "  日志文件: ./log.txt"
+    return 0
   else
-    VLLM_PID=$(pgrep -f "vllm serve.*$MODEL_PATH" | head -1)
-    if [ -n "$VLLM_PID" ]; then
-      echo "✓ vLLM 服务运行中 (PID: $VLLM_PID)"
-      echo "  API 地址: http://localhost:$PORT/v1/models"
-      echo "  日志文件: ./log.txt"
-      return 0
-    else
-      echo "✗ vLLM 服务未运行"
-      return 1
-    fi
+    echo "✗ vLLM 服务未运行"
+    return 1
   fi
 }
 

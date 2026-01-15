@@ -30,7 +30,7 @@ result = client.chat.completions.create(
     model="gpt-oss-20b",
     messages=[
         {"role": "system", "content": "You are a helpful assistant."},
-        {"role": "user", "content": "Explain what MXFP4 quantization is."}
+        {"role": "user", "content": "In area of LLM, Explain what MXFP4 quantization is."}
     ]
 )
 

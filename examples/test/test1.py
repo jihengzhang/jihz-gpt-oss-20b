@@ -8,8 +8,8 @@ client = OpenAI(
 result = client.chat.completions.create(
     model="gpt-oss-20b",
     messages=[
-        {"role": "system", "content": "You are a helpful assistant."},
-        {"role": "user", "content": "Explain what MXFP4 quantization is."}
+        {"role": "system", "content": "You are a helpful technical assistant. Provide concise, accurate explanations."},
+        {"role": "user", "content": "In the context of LLM (Large Language Model) inference optimization, explain MXFP4 quantization in 2-3 sentences."}
     ]
 )
  
