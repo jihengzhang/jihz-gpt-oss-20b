@@ -2,6 +2,20 @@ import json
 
 import requests
 import streamlit as st
+from datetime import datetime
+
+# Configure the remote server address
+# Change this to the IP address or hostname of the machine running vLLM
+SERVER_HOST = "192.168.0.115"  # Replace with your server IP
+SERVER_PORT = 8010
+
+def log(message):
+    """输出日志到 terminal"""
+    timestamp = datetime.now().strftime("%H:%M:%S")
+    print(f"[{timestamp}] {message}")
+
+
+
 
 DEFAULT_FUNCTION_PROPERTIES = """
 {
@@ -70,23 +84,33 @@ temperature = st.sidebar.slider(
     "Temperature", min_value=0.0, max_value=1.0, value=1.0, step=0.01
 )
 max_output_tokens = st.sidebar.slider(
-    "Max output tokens", min_value=1, max_value=131072, value=30000, step=1000
+    "Max output tokens", min_value=1, max_value=2048, value=1024, step=100
 )
 st.sidebar.divider()
 debug_mode = st.sidebar.toggle("Debug mode", value=False)
 
 if debug_mode:
     st.sidebar.divider()
-    st.sidebar.code(json.dumps(st.session_state.messages, indent=2), "json")
+    
+    # 显示消息状态
+    with st.sidebar.expander("📨 消息状态", expanded=False):
+        st.code(json.dumps(st.session_state.messages, indent=2), "json")
 
 render_input = True
 
 URL = (
-    "http://localhost:8081/v1/responses"
+    # "http://localhost:8010/v1/responses"
+    # "http://{SERVER_HOST}:{SERVER_PORT}/v1"  # with error
+    f"http://{SERVER_HOST}:{SERVER_PORT}/v1/responses"
     if selection == options[1]
-    else "http://localhost:8000/v1/responses"
+    else "http://localhost:8010/v1/responses"
 )
 
+# Create client with remote server URL
+# client = OpenAI(
+#     base_url=f"http://{SERVER_HOST}:{SERVER_PORT}/v1",
+#     api_key="EMPTY"
+# )
 
 def trigger_fake_tool(container):
     function_output = st.session_state.get("function_output", "It's sunny!")
@@ -118,25 +142,44 @@ def run(container):
         tools.append({"type": "browser_search"})
     if use_code_interpreter:
         tools.append({"type": "code_interpreter"})
+    
+    # 记录请求信息
+    log(f"🚀 发送请求到 {URL}")
+    log(f"📤 消息数量: {len(st.session_state.messages)}")
+    
+    request_payload = {
+        "input": st.session_state.messages,
+        "stream": True,
+        "instructions": instructions,
+        "reasoning": {"effort": effort},
+        "metadata": {"__debug": str(debug_mode)},  # 转换为字符串
+        "tools": tools,
+        "temperature": temperature,
+        "max_output_tokens": max_output_tokens,
+    }
+    
+    log(f"📋 请求体: {json.dumps(request_payload, ensure_ascii=False)[:200]}...")
+    
     response = requests.post(
         URL,
-        json={
-            "input": st.session_state.messages,
-            "stream": True,
-            "instructions": instructions,
-            "reasoning": {"effort": effort},
-            "metadata": {"__debug": debug_mode},
-            "tools": tools,
-            "temperature": temperature,
-            "max_output_tokens": max_output_tokens,
-        },
+        json=request_payload,
         stream=True,
     )
+    
+    log(f"✅ 连接成功: 状态码 {response.status_code}")
+    
+    if response.status_code != 200:
+        try:
+            error_text = response.text[:500]
+            log(f"❌ API 错误: {error_text}")
+        except:
+            pass
 
     text_delta = ""
     code_interpreter_sessions: dict[str, dict] = {}
 
     _current_output_index = 0
+    event_count = 0
     for line in response.iter_lines(decode_unicode=True):
         if not line or not line.startswith("data:"):
             continue
@@ -145,14 +188,19 @@ def run(container):
             continue
         try:
             data = json.loads(data_str)
-        except Exception:
+        except Exception as e:
+            log(f"❌ JSON 解析错误: {str(e)}")
             continue
 
         event_type = data.get("type", "")
+        event_count += 1
+        log(f"📥 事件 #{event_count}: {event_type}")
+        
         output_index = data.get("output_index", 0)
         if event_type == "response.output_item.added":
             _current_output_index = output_index
             output_type = data.get("item", {}).get("type", "message")
+            log(f"  └─ 输出类型: {output_type}")
             if output_type == "message":
                 output = container.chat_message("assistant")
                 placeholder = output.empty()
@@ -192,10 +240,14 @@ def run(container):
             text_delta += data.get("delta", "")
             placeholder.markdown(text_delta)
         elif event_type == "response.output_text.delta":
-            text_delta += data.get("delta", "")
+            delta = data.get("delta", "")
+            text_delta += delta
             placeholder.markdown(text_delta)
+            if len(text_delta) % 50 == 0:  # 每50个字符记录一次
+                log(f"  └─ 接收文本 ({len(text_delta)} 字符)")
         elif event_type == "response.output_item.done":
             item = data.get("item", {})
+            log(f"  └─ 完成: {item.get('type', 'unknown')}")
             if item.get("type") == "function_call":
                 with container.chat_message("function_call", avatar="🔨"):
                     st.markdown(f"Called `{item.get('name')}`")
@@ -276,6 +328,7 @@ def run(container):
                 if final_code:
                     session["code"].code(final_code, language="python")
         elif event_type == "response.completed":
+            log(f"✅ 响应完成! (总事件数: {event_count})")
             response = data.get("response", {})
             if debug_mode:
                 container.expander("Debug", expanded=False).code(
@@ -294,7 +347,6 @@ def run(container):
                         on_click=trigger_fake_tool,
                         args=[container],
                     )
-            # Optionally handle other event types...
 
 
 # Chat display
@@ -340,6 +392,8 @@ for msg in st.session_state.messages:
 if render_input:
     # Input field
     if prompt := st.chat_input("Type a message..."):
+        log(f"👤 用户输入: {prompt[:100]}{'...' if len(prompt) > 100 else ''}")
+        
         st.session_state.messages.append(
             {
                 "type": "message",
@@ -351,4 +405,5 @@ if render_input:
         with st.chat_message("user"):
             st.markdown(prompt)
 
+        log(f"⏳ 正在处理请求...")
         run(st.container())
