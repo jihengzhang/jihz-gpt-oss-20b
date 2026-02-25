@@ -16,7 +16,7 @@ from openai import OpenAI
 
 # Configure the remote server address
 # Change this to the IP address or hostname of the machine running vLLM
-SERVER_HOST = "192.168.0.115"  # Replace with your server IP
+SERVER_HOST = "192.168.0.113"  # Replace with your server IP
 SERVER_PORT = 8010
 
 # Create client with remote server URL
@@ -33,7 +33,7 @@ stream = client.chat.completions.create(
     model="gpt-oss-20b",
     messages=[
         {"role": "system", "content": "You are a helpful assistant."},
-        {"role": "user", "content": "In area of LLM, Explain what MXFP4 quantization is."}
+        {"role": "user", "content": "用中文解释：In area of LLM, Explain what MXFP4 quantization is."}
     ],
     stream=True  # 启用流式输出
 )
